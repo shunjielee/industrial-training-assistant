@@ -2,16 +2,28 @@ import os
 import tempfile
 import re
 import PyPDF2
-import pytesseract
-from pdf2image import convert_from_path
 from typing import Dict, List, Tuple, Any
 import logging
+
+# Make OCR dependencies optional
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    OCR_DEPS_AVAILABLE = True
+except ImportError:
+    OCR_DEPS_AVAILABLE = False
+    pytesseract = None
+    convert_from_path = None
+    logging.getLogger(__name__).warning("OCR dependencies (pytesseract, pdf2image) not available. CV checker OCR functionality will be disabled.")
 
 logger = logging.getLogger(__name__)
 
 
 def check_tesseract_available() -> Tuple[bool, str]:
     """Check if Tesseract OCR is available on the system."""
+    if not OCR_DEPS_AVAILABLE or pytesseract is None:
+        return False, None
+    
     tesseract_paths = [
         r'C:\Program Files\Tesseract-OCR\tesseract.exe',
         r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
@@ -50,22 +62,24 @@ def extract_text_with_ocr(pdf_path: str) -> str:
         if len(full_text.strip()) < 100:
             ocr_available, tesseract_path = check_tesseract_available()
             
-            if not ocr_available:
+            if not ocr_available or not OCR_DEPS_AVAILABLE:
                 return full_text
             
             try:
-                if tesseract_path:
+                if tesseract_path and pytesseract:
                     pytesseract.pytesseract.tesseract_cmd = tesseract_path
                 
-                images = convert_from_path(pdf_path, dpi=200)
-                ocr_text = ""
-                
-                for image in images:
-                    page_text = pytesseract.image_to_string(image, lang='eng')
-                    ocr_text += page_text + "\n"
-                
-                if len(ocr_text.strip()) > len(full_text.strip()):
-                    full_text = ocr_text
+                if convert_from_path:
+                    images = convert_from_path(pdf_path, dpi=200)
+                    ocr_text = ""
+                    
+                    for image in images:
+                        if pytesseract:
+                            page_text = pytesseract.image_to_string(image, lang='eng')
+                            ocr_text += page_text + "\n"
+                    
+                    if len(ocr_text.strip()) > len(full_text.strip()):
+                        full_text = ocr_text
                     
             except Exception as e:
                 logger.warning(f"OCR processing failed: {str(e)}")
